@@ -3,13 +3,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { GreetController } from './greet/greet.controller';
 import { HelloController } from './hello/hello.controller';
-import { InventoryController } from './inventory/inventory.controller';
-import { InventoryService } from './inventory/inventory.service';
 import { InventoryModule } from './inventory/inventory.module';
+import { BookModule } from './book/book.module';
 
 @Module({
-  imports: [InventoryModule],
-  controllers: [AppController, GreetController, HelloController, InventoryController],
-  providers: [AppService, InventoryService],
+  imports: [InventoryModule, BookModule],
+  controllers: [AppController, GreetController, HelloController],
+  providers: [AppService],
 })
 export class AppModule {}

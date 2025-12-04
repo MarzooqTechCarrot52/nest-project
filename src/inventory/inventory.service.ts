@@ -53,9 +53,11 @@ export class InventoryService {
     const updatedItem = { 
       ...exisitingItem, 
       ...Body, 
-      id: exisitingItem.id
+      id: exisitingItem.id,
+      isInStock : Body.quantity>0
     };
 
-    return this.db.set(id, updatedItem);
+    this.db.set(id, updatedItem);
+    return exisitingItem
   }
 }
