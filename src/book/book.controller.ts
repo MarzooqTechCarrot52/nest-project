@@ -3,13 +3,15 @@ import {BookService} from './book.service';
 import {ValidationService} from '../libs/helper/validation.service';
 import {UtilService} from '../libs/utils/util.service';
 import {CreateBookDto,UpdateBookDto} from './book.dto';
+import { BookFetch } from './book.fetch';
 
 @Controller('book')
 export class BookController{
   constructor(
     private readonly service:BookService,
     private readonly validation:ValidationService,
-    private readonly util:UtilService
+    private readonly util:UtilService,
+    private readonly fetch:BookFetch
 ) {}
   @Post()
   create(@Body() body: CreateBookDto) {
@@ -24,8 +26,8 @@ export class BookController{
   }
 
   @Get()
-  getAll() {
-    const response = this.service.findAll();
+  async getAll() {
+    const response = await this.fetch.fetchInventory();
 
     return this.util.createResponse({
       status: response ? 'SUCCESS' : 'BAD_REQUEST',

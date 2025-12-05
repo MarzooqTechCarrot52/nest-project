@@ -20,7 +20,7 @@ export class InventoryService {
     const newItem = {
       ...item , 
       id,
-      isInStock : item.quantity>0
+      // isInStock : item.quantity>0
     }
     this.db.set(id,newItem)
     return newItem
