@@ -20,7 +20,7 @@ export class InventoryService {
     const newItem = {
       ...item , 
       id,
-      // isInStock : item.quantity>0
+      isInStock : item.quantity>0
     }
     this.db.set(id,newItem)
     return newItem
@@ -38,6 +38,13 @@ export class InventoryService {
     }
     return item
 
+  }
+  public getOne(id:string){
+    let item = this.db.values();
+    if(id){
+      item=item.filter(item=>item.id===id) 
+    }
+    return item
   }
 
   public updateItem(id: string, Body: Item){
