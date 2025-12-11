@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { UtilService } from '../libs/utils/util.service';
+import { BookFetch } from './inventory.fetch';
 import type{ Item } from './inventory.service';
 
 @Controller('inventory')
@@ -8,6 +9,7 @@ export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
     private readonly util : UtilService,
+    private readonly fetch : BookFetch,
   ) {}
   
   @Post()
@@ -23,6 +25,31 @@ export class InventoryController {
     catch (error) {
         return { message : error.message }
     }
+  }
+
+  // @Post("add")
+  // createBookInventory(@Body() item: Item){
+  //   try {  
+  //       const inventoryData = this.inventoryService.createItem(item);
+  //       return this.util.createResponse({
+  //         status: inventoryData ? 'SUCCESS' : 'BAD_REQUEST',
+  //         cat: 'INVENTORY',
+  //         data: inventoryData,
+  //       })
+  //   }
+  //   catch (error) {
+  //       return { message : error.message }
+  //   }
+  // }
+  @Get("fetch")
+  async getAll() {
+    const response = await this.fetch.fetchInventory();
+    console.log(response)
+    return this.util.createResponse({
+      status: response ? 'SUCCESS' : 'BAD_REQUEST',
+      cat: 'BOOK',
+      data: response
+    });
   }
   
   @Get()
