@@ -10,7 +10,7 @@ import { firstValueFrom } from 'rxjs';
 export class BookController{
   constructor(
     private readonly service:BookService,
-    private readonly validation:ValidationService,
+    // private readonly validation:ValidationService,
     private readonly util:UtilService,
     private readonly http: HttpService,
 ) {}
@@ -49,7 +49,8 @@ export class BookController{
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ) id: string) {
+    console.log(typeof(id))
     const response = this.service.findOne(+id);
 
     return this.util.createResponse({

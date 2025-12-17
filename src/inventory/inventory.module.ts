@@ -7,7 +7,14 @@ import {HttpModule} from '@nestjs/axios';
 
 @Module({
     imports: [HttpModule],
-    providers:[InventoryService, UtilService,BookFetch],
+    providers:[
+        {
+        provide:InventoryService, //TOKEN
+        useClass:InventoryService //CLASS      TOKEN->CLASS
+        },
+        UtilService,
+        BookFetch,
+    ],
     controllers: [InventoryController]
 })
 export class InventoryModule {}
