@@ -4,7 +4,12 @@ import type { Book } from './book.interface';
 
 @Injectable()
 export class BookService {
-    private books :Book[]=[]
+    private books :Book[]=[
+  { id: 1, title: 'Wings and Fire', author: 'ABC', price: 123 },
+  { id: 2, title: 'The Silent Patient', author: 'Alex Michaelides', price: 189 },
+  { id: 3, title: 'Atomic Habits', author: 'James Clear', price: 299 },
+  { id: 4, title: 'The Alchemist', author: 'Paulo Coelho', price: 159 },
+];
     private counter = 1;
 
     create(createbook:CreateBookDto):Book{
