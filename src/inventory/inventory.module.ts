@@ -1,20 +1,18 @@
 import { Module } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import { InventoryController } from './inventory.controller';
-import { UtilService } from '../libs/utils/util.service';
 import { BookFetch } from './inventory.fetch';
-import {HttpModule} from '@nestjs/axios';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
     imports: [HttpModule],
     providers:[
         {
-        provide:InventoryService, //TOKEN
-        useClass:InventoryService //CLASS      TOKEN->CLASS
+            provide: InventoryService,
+            useClass: InventoryService,
         },
-        UtilService,
         BookFetch,
     ],
-    controllers: [InventoryController]
+    controllers: [InventoryController],
 })
 export class InventoryModule {}

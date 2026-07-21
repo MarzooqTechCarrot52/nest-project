@@ -1,14 +1,13 @@
 import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { UtilService } from '../libs/utils/util.service';
 // import { BookFetch } from './inventory.fetch';
-import type{ Item } from './inventory.service';
+import type { Item } from './inventory.service';
 
 @Controller('inventory')
 export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
-    private readonly util : UtilService,
+    // private readonly util : UtilService,
     // private readonly fetch : BookFetch,
   ) {}
   
@@ -16,14 +15,16 @@ export class InventoryController {
   createInventory(@Body() item: Item){
     try {  
         const inventoryData = this.inventoryService.createItem(item);
-        return this.util.createResponse({
+        //return this.util.createResponse({
+        return ({
           status: inventoryData ? 'SUCCESS' : 'BAD_REQUEST',
           cat: 'INVENTORY',
           data: inventoryData,
         })
     }
     catch (error) {
-        return { message : error.message }
+        const message = error instanceof Error ? error.message : 'An unknown error occurred';
+        return { message}
     }
   }
   // @Get()
@@ -40,7 +41,8 @@ export class InventoryController {
   @Get()
   getInventory(@Query('category') category?:string,@Query('isInStock') isInStock?:string) {
     const inventoryData = this.inventoryService.getItem(category ,isInStock );
-    return this.util.createResponse({ 
+    //return this.util.createResponse({ 
+    return ({
       status: inventoryData ? 'SUCCESS' : 'BAD_REQUEST',
       cat: 'INVENTORY',
       data: inventoryData,
@@ -50,7 +52,8 @@ export class InventoryController {
   @Get(":id")
   getOneInventory(@Param('id') id:string){
     const inventoryData= this.inventoryService.getOne(id);
-    return this.util.createResponse({
+    //return this.util.createResponse({
+    return ({
       status: inventoryData ? 'SUCESSS' : 'BAD REQUEST',
       cat : 'INVENTORY',
       data: inventoryData
@@ -62,13 +65,15 @@ export class InventoryController {
   updateInventory(@Param('id') id: string,@Body() Body: Item) {
     try {
       const InventoryData = this.inventoryService.updateItem(id, Body);
-      return this.util.createResponse({
+      //return this.util.createResponse({
+      return ({
         status: InventoryData ? 'SUCCESS' : 'BAD_REQUEST',
         cat: 'INVENTORY',
         data: InventoryData,
       })
     }catch (error) {
-      return { message : error.message};
+      const message = error instanceof Error ? error.message : 'An unknown error occurred';
+      return { message}
     }
   }
 }

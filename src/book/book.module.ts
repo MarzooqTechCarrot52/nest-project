@@ -4,11 +4,11 @@ import { BookService } from './book.service';
 import { ValidationService } from '../libs/helper/validation.service';
 import {UtilService} from '../libs/utils/util.service';
 import { HttpModule } from '@nestjs/axios';
-
+import { BearerAuthGuard } from '../auth/bearer-auth.guard';
 
 @Module({
     imports:[HttpModule],
     controllers:[BookController],
-    providers:[BookService,ValidationService,UtilService],
+    providers:[BookService, ValidationService, BearerAuthGuard],
 })
 export class BookModule {}

@@ -4,10 +4,13 @@ import { AppService } from './app.service';
 import { InventoryModule } from './inventory/inventory.module';
 import { BookModule } from './book/book.module';
 import { AddHeaderMiddleware } from './add.header';
+import { ConfigModule } from '@nestjs/config';
 
 
 @Module({
-  imports: [InventoryModule, BookModule],
+  imports: [ConfigModule.forRoot({
+      isGlobal: true,
+    }),InventoryModule, BookModule],
   controllers: [AppController],
   providers: [AppService],
 })
