@@ -4,562 +4,2025 @@ import ts from 'typescript';
 
 const SRC = path.join(process.cwd(), 'src');
 
+/* ===========================================================
+ * File Scanner
+ * =========================================================== */
+
 function findSourceFiles(dir: string): string[] {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...findSourceFiles(full));
-    } else if (entry.isFile() && full.endsWith('.ts')) {
-      files.push(full);
-    }
-  }
-  return files;
-}
+    const result: string[] = [];
 
-function getDecoratorName(node: ts.Decorator): string | undefined {
-  const expr = node.expression;
-  if (ts.isCallExpression(expr)) {
-    const id = expr.expression;
-    return ts.isIdentifier(id) ? id.text : undefined;
-  }
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
-  }
-  return undefined;
-}
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
 
-function getDecoratorArgText(node: ts.Decorator, index = 0): string | undefined {
-  const expr = node.expression;
-  if (!ts.isCallExpression(expr)) return undefined;
-  const arg = expr.arguments[index];
-  if (!arg) return undefined;
-  if (ts.isStringLiteral(arg)) return arg.text;
-  return arg.getText();
-}
+        if (entry.isDirectory()) {
+            result.push(...findSourceFiles(full));
+            continue;
+        }
 
-export function normalizeRoute(prefix = '', route = ''): string {
-  const clean = (s: string) => s.replace(/^['"`]|['"`]$/g, '').trim();
-  const p = clean(prefix);
-  const r = clean(route);
-  const routePath = [p, r].filter(Boolean).join('/');
-  return '/' + routePath.split('/').filter(Boolean).join('/');
-}
-
-export function typeToString(node: ts.TypeNode | undefined): string {
-  if (!node) return 'any';
-  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
-    return node.typeName.text;
-  }
-  if (ts.isUnionTypeNode(node)) {
-    return node.types.map(typeToString).join(' | ');
-  }
-  if (ts.isArrayTypeNode(node)) {
-    return `${typeToString(node.elementType)}[]`;
-  }
-  if (ts.isTypeLiteralNode(node)) {
-    return 'object';
-  }
-  return node.getText();
-}
-
-function getPropertyName(name: ts.PropertyName): string {
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
-    return name.text;
-  }
-  return name.getText();
-}
-
-export function collectSchemas(sourceFile: ts.SourceFile) {
-  const schemas: Record<string, any> = {};
-
-  ts.forEachChild(sourceFile, node => {
-    if (ts.isClassDeclaration(node) && node.name && node.name.text.endsWith('Dto')) {
-      const className = node.name.text;
-      const properties: Record<string, any> = {};
-      node.members.forEach(member => {
-        if (!ts.isPropertyDeclaration(member) || !member.name) return;
-        const name = getPropertyName(member.name);
-        properties[name] = { type: typeToString(member.type) };
-      });
-      schemas[className] = { type: 'object', properties };
+        if (
+            entry.isFile() &&
+            full.endsWith('.ts') &&
+            !full.endsWith('.spec.ts')
+        ) {
+            result.push(full);
+        }
     }
 
-    if (ts.isInterfaceDeclaration(node) && node.name) {
-      const interfaceName = node.name.text;
-      const properties: Record<string, any> = {};
-      node.members.forEach(member => {
-        if (!ts.isPropertySignature(member) || !member.name) return;
-        const name = getPropertyName(member.name);
-        properties[name] = { type: typeToString(member.type) };
-      });
-      schemas[interfaceName] = { type: 'object', properties };
-    }
-  });
-
-  return schemas;
+    return result;
 }
 
-export function collectServices(sourceFile: ts.SourceFile) {
-  const services: Record<string, Record<string, string>> = {};
+/* ===========================================================
+ * TypeScript Program
+ * =========================================================== */
 
-  ts.forEachChild(sourceFile, node => {
-    if (!ts.isClassDeclaration(node) || !node.name) return;
-    const className = node.name.text;
-    if (!className.toLowerCase().includes('service')) return;
+const sourceFiles = findSourceFiles(SRC);
 
-    const methods: Record<string, string> = {};
-    node.members.forEach(member => {
-      if (!ts.isMethodDeclaration(member) || !member.name || !ts.isIdentifier(member.name)) return;
-      methods[member.name.text] = member.type ? typeToString(member.type) : 'any';
+const program = ts.createProgram(
+    sourceFiles,
+    {
+        target: ts.ScriptTarget.Latest,
+        module: ts.ModuleKind.CommonJS,
+    },
+);
+
+const checker = program.getTypeChecker();
+
+/* ===========================================================
+ * Generic AST Visitor
+ * =========================================================== */
+
+function visit(node: ts.Node, cb: (node: ts.Node) => void) {
+    cb(node);
+    ts.forEachChild(node, child => visit(child, cb));
+}
+
+/* ===========================================================
+ * Decorator Helpers
+ * =========================================================== */
+
+function getDecorators(node: ts.Node): readonly ts.Decorator[] {
+    return ts.canHaveDecorators(node)
+        ? ts.getDecorators(node) ?? []
+        : [];
+}
+
+function getDecoratorName(dec: ts.Decorator): string | undefined {
+
+    const expr = dec.expression;
+
+    if (ts.isIdentifier(expr))
+        return expr.text;
+
+    if (
+        ts.isCallExpression(expr) &&
+        ts.isIdentifier(expr.expression)
+    )
+        return expr.expression.text;
+
+    return undefined;
+}
+
+function getDecoratorArg(
+    dec: ts.Decorator,
+    index = 0,
+): string | undefined {
+
+    if (!ts.isCallExpression(dec.expression))
+        return;
+
+    const arg = dec.expression.arguments[index];
+
+    if (!arg)
+        return;
+
+    if (ts.isStringLiteral(arg))
+        return arg.text;
+
+    return arg.getText();
+}
+
+/* ===========================================================
+ * Route Helpers
+ * =========================================================== */
+
+function normalizeRoute(
+    prefix = '',
+    route = '',
+) {
+
+    const clean = (v: string) =>
+        v.replace(/^['"`]|['"`]$/g, '').trim();
+
+    return (
+        '/' +
+        [clean(prefix), clean(route)]
+            .filter(Boolean)
+            .join('/')
+            .split('/')
+            .filter(Boolean)
+            .join('/')
+    );
+}
+
+/* ===========================================================
+ * Type Helpers
+ * =========================================================== */
+
+function typeToString(type?: ts.TypeNode): string {
+
+    if (!type)
+        return 'any';
+
+    if (ts.isArrayTypeNode(type))
+        return `${typeToString(type.elementType)}[]`;
+
+    if (
+        ts.isTypeReferenceNode(type) &&
+        ts.isIdentifier(type.typeName)
+    )
+        return type.typeName.text;
+
+    if (ts.isUnionTypeNode(type))
+        return type.types
+            .map(typeToString)
+            .join(' | ');
+
+    return type.getText();
+}
+
+function getTypeAtNode(node: ts.Node): string {
+
+    const type = checker.getTypeAtLocation(node);
+
+    return checker.typeToString(type);
+}
+
+/* ===========================================================
+ * Property Helpers
+ * =========================================================== */
+
+function propertyName(name: ts.PropertyName): string {
+
+    if (
+        ts.isIdentifier(name) ||
+        ts.isStringLiteral(name) ||
+        ts.isNumericLiteral(name)
+    )
+        return name.text;
+
+    return name.getText();
+}
+
+/* ===========================================================
+ * Recursive Throw Collector
+ * =========================================================== */
+
+function collectThrows(node: ts.Node) {
+
+    const throws: {
+        exception: string;
+        message?: string;
+    }[] = [];
+
+    visit(node, current => {
+
+        if (!ts.isThrowStatement(current))
+            return;
+
+        const expr = current.expression;
+
+        if (
+            !expr ||
+            !ts.isNewExpression(expr) ||
+            !ts.isIdentifier(expr.expression)
+        )
+            return;
+
+        throws.push({
+            exception: expr.expression.text,
+            message:
+                expr.arguments?.[0]?.getText()
+                    .replace(/^['"`]|['"`]$/g, ''),
+        });
     });
 
-    if (Object.keys(methods).length) {
-      services[className] = methods;
-    }
-  });
-
-  return services;
+    return throws;
 }
 
-function getControllerDependencies(node: ts.ClassDeclaration): Record<string, string> {
-  const dependencies: Record<string, string> = {};
-  const ctor = node.members.find(ts.isConstructorDeclaration);
-  if (!ctor) return dependencies;
+/* ===========================================================
+ * Recursive Variable Lookup
+ * =========================================================== */
 
-  ctor.parameters.forEach(param => {
-    if (ts.isIdentifier(param.name) && param.type) {
-      dependencies[param.name.text] = typeToString(param.type);
-    }
-  });
+function findVariableDeclaration(
+    body: ts.Node,
+    variable: string,
+): ts.VariableDeclaration | undefined {
 
-  return dependencies;
-}
+    let found: ts.VariableDeclaration | undefined;
 
-function findVariableDeclarationInBody(body: ts.Block | undefined, name: string): ts.VariableDeclaration | undefined {
-  if (!body) return undefined;
+    visit(body, node => {
 
-  for (const statement of body.statements) {
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && declaration.name.text === name) {
-          return declaration;
+        if (found)
+            return;
+
+        if (
+            ts.isVariableDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.name.text === variable
+        ) {
+            found = node;
         }
-      }
-    }
-  }
+    });
 
-  return undefined;
+    return found;
 }
+
+ /* ===========================================================
+ * Schema Collector
+ * =========================================================== */
+
+type SchemaMap = Record<string, any>;
+
+
+function schemaFromType(
+    type: ts.TypeNode | undefined,
+): any {
+
+    if (!type) {
+        return {
+            type: 'object',
+        };
+    }
+
+
+    // string
+    if (
+        type.kind === ts.SyntaxKind.StringKeyword
+    ) {
+        return {
+            type: 'string',
+        };
+    }
+
+
+    // number
+    if (
+        type.kind === ts.SyntaxKind.NumberKeyword
+    ) {
+        return {
+            type: 'number',
+        };
+    }
+
+
+    // boolean
+    if (
+        type.kind === ts.SyntaxKind.BooleanKeyword
+    ) {
+        return {
+            type: 'boolean',
+        };
+    }
+
+
+    // array
+    if (
+        ts.isArrayTypeNode(type)
+    ) {
+
+        return {
+            type: 'array',
+            items: schemaFromType(
+                type.elementType,
+            ),
+        };
+    }
+
+
+    // Type reference
+    if (
+        ts.isTypeReferenceNode(type) &&
+        ts.isIdentifier(type.typeName)
+    ) {
+
+        return {
+            $ref:
+                `#/components/schemas/${type.typeName.text}`,
+        };
+    }
+
+
+    // union
+    if (
+        ts.isUnionTypeNode(type)
+    ) {
+
+        return {
+            oneOf:
+                type.types.map(
+                    t => schemaFromType(t),
+                ),
+        };
+    }
+
+
+    // inline object
+    if (
+        ts.isTypeLiteralNode(type)
+    ) {
+
+        const properties: Record<string, any> = {};
+
+        type.members.forEach(member => {
+
+            if (
+                !ts.isPropertySignature(member) ||
+                !member.name
+            )
+                return;
+
+
+            properties[
+                propertyName(member.name)
+            ] =
+                schemaFromType(member.type);
+        });
+
+
+        return {
+            type: 'object',
+            properties,
+        };
+    }
+
+
+    return {
+        type: 'object',
+    };
+}
+
+
+
+/* ===========================================================
+ * Class DTO Parser
+ * =========================================================== */
+
+function parseClassSchema(
+    node: ts.ClassDeclaration,
+) {
+
+    const properties: Record<string, any> = {};
+
+
+    node.members.forEach(member => {
+
+
+        if (
+            !ts.isPropertyDeclaration(member) ||
+            !member.name
+        )
+            return;
+
+
+        const name =
+            propertyName(member.name);
+
+
+        properties[name] =
+            schemaFromType(member.type);
+
+    });
+
+
+    return {
+        type: 'object',
+        properties,
+    };
+}
+
+
+
+/* ===========================================================
+ * Interface Parser
+ * =========================================================== */
+
+function parseInterfaceSchema(
+    node: ts.InterfaceDeclaration,
+) {
+
+    const properties: Record<string, any> = {};
+
+
+    node.members.forEach(member => {
+
+
+        if (
+            !ts.isPropertySignature(member) ||
+            !member.name
+        )
+            return;
+
+
+        properties[
+            propertyName(member.name)
+        ] =
+            schemaFromType(member.type);
+
+    });
+
+
+    return {
+        type: 'object',
+        properties,
+    };
+}
+
+
+
+/* ===========================================================
+ * Enum Parser
+ * =========================================================== */
+
+function parseEnumSchema(
+    node: ts.EnumDeclaration,
+) {
+
+    const values =
+        node.members.map(member => {
+
+            if (
+                member.initializer &&
+                ts.isStringLiteral(
+                    member.initializer,
+                )
+            ) {
+                return member.initializer.text;
+            }
+
+            return member.name.getText();
+
+        });
+
+
+    return {
+        type: 'string',
+        enum: values,
+    };
+}
+
+
+
+/* ===========================================================
+ * Main Schema Collector
+ * =========================================================== */
+
+export function collectSchemas(
+    sourceFile: ts.SourceFile,
+): SchemaMap {
+
+
+    const schemas: SchemaMap = {};
+
+
+    visit(sourceFile, node => {
+
+
+        /*
+         * DTO classes
+         */
+
+        if (
+            ts.isClassDeclaration(node) &&
+            node.name &&
+            (
+                node.name.text.endsWith('Dto') ||
+                node.name.text.endsWith('DTO')
+            )
+        ) {
+
+            schemas[node.name.text] =
+                parseClassSchema(node);
+        }
+
+
+
+        /*
+         * Interfaces
+         */
+
+        if (
+            ts.isInterfaceDeclaration(node) &&
+            node.name
+        ) {
+
+            schemas[node.name.text] =
+                parseInterfaceSchema(node);
+
+        }
+
+
+
+        /*
+         * Enums
+         */
+
+        if (
+            ts.isEnumDeclaration(node) &&
+            node.name
+        ) {
+
+            schemas[node.name.text] =
+                parseEnumSchema(node);
+
+        }
+
+    });
+
+
+    return schemas;
+}
+
+ /* ===========================================================
+ * Service Collector
+ * =========================================================== */
+
+type ServiceMap = Record<
+    string,
+    Record<string, string>
+>;
+
+
+
+/*
+ * Remove Promise wrapper
+ *
+ * Promise<Book>
+ * becomes
+ * Book
+ *
+ * Promise<Book[]>
+ * becomes
+ * Book[]
+ */
+
+function unwrapPromise(
+    typeName: string,
+): string {
+
+    const match =
+        typeName.match(
+            /^Promise<(.*)>$/,
+        );
+
+    return match
+        ? match[1]
+        : typeName;
+}
+
+
+
+/*
+ * Resolve method return type
+ */
+
+function resolveMethodReturnType(
+    method: ts.MethodDeclaration,
+): string {
+
+
+    /*
+     * First priority:
+     *
+     * get explicit return type
+     *
+     * findAll(): Book[]
+     */
+
+    if (method.type) {
+
+        return unwrapPromise(
+            method.type.getText(),
+        );
+    }
+
+
+
+    /*
+     * Otherwise use TypeChecker
+     *
+     * async findAll() {}
+     */
+
+    const signature =
+        checker.getSignatureFromDeclaration(
+            method,
+        );
+
+
+    if (!signature) {
+        return 'any';
+    }
+
+
+    const returnType =
+        checker.getReturnTypeOfSignature(
+            signature,
+        );
+
+
+    return unwrapPromise(
+        checker.typeToString(
+            returnType,
+        ),
+    );
+}
+
+
+
+
+/*
+ * Collect service classes
+ */
+
+export function collectServices(
+    sourceFile: ts.SourceFile,
+): ServiceMap {
+
+
+    const services: ServiceMap = {};
+
+
+
+    visit(sourceFile, node => {
+
+
+        if (
+            !ts.isClassDeclaration(node) ||
+            !node.name
+        )
+            return;
+
+
+
+        const className =
+            node.name.text;
+
+
+
+        if (
+            !className
+                .toLowerCase()
+                .endsWith('service')
+        )
+            return;
+
+
+
+        const methods:
+            Record<string,string> = {};
+
+
+
+        node.members.forEach(member => {
+
+
+            if (
+                !ts.isMethodDeclaration(member) ||
+                !member.name
+            )
+                return;
+
+
+
+            const methodName =
+                member.name.getText();
+
+
+
+            methods[methodName] =
+                resolveMethodReturnType(
+                    member,
+                );
+
+        });
+
+
+
+        if (
+            Object.keys(methods).length
+        ) {
+
+            services[className] =
+                methods;
+        }
+
+
+    });
+
+
+
+    return services;
+}
+
+ /* ===========================================================
+ * Expression Type Resolver
+ * =========================================================== */
+
 
 function resolveExpressionType(
-  expr: ts.Expression | undefined,
-  dependencies: Record<string, string>,
-  serviceMethods: Record<string, Record<string, string>>,
-  body: ts.Block | undefined,
-): string | undefined {
-  if (!expr) return undefined;
+    expression: ts.Expression,
+): string {
 
-  if (ts.isIdentifier(expr)) {
-    const declaration = findVariableDeclarationInBody(body, expr.text);
-    if (declaration?.initializer) {
-      return resolveExpressionType(declaration.initializer, dependencies, serviceMethods, body);
-    }
-    return undefined;
-  }
 
-  if (ts.isAwaitExpression(expr)) {
-    return resolveExpressionType(expr.expression, dependencies, serviceMethods, body);
-  }
+    /*
+     * TypeScript native inference
+     *
+     * Handles:
+     *
+     * this.service.findAll()
+     * variable
+     * await
+     * arrays
+     * objects
+     */
 
-  if (ts.isCallExpression(expr)) {
-    const callee = expr.expression;
-    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.name)) {
-      const methodName = callee.name.text;
-      const receiver = callee.expression;
-      if (ts.isPropertyAccessExpression(receiver) && receiver.expression.kind === ts.SyntaxKind.ThisKeyword) {
-        const dependencyName = receiver.name.text;
-        const dependencyType = dependencies[dependencyName];
-        const returnType = dependencyType ? serviceMethods[dependencyType]?.[methodName] : undefined;
-        if (returnType) return returnType;
-      }
-    }
-  }
+    const type =
+        checker.getTypeAtLocation(
+            expression,
+        );
 
-  return undefined;
+
+    let result =
+        checker.typeToString(type);
+
+
+
+    /*
+     * Remove Promise<>
+     */
+
+    result =
+        unwrapPromise(result);
+
+
+
+    return result || 'any';
 }
 
-function schemaForTypeName(typeName: string | undefined, schemas: Record<string, any>) {
-  const normalized = typeName?.trim();
-  if (!normalized || normalized === 'any') {
-    return { type: 'object' };
-  }
 
-  if (normalized.endsWith('[]')) {
+
+
+/* ===========================================================
+ * Example Generator
+ * =========================================================== */
+
+
+function exampleFromSchema(
+    schema: any,
+): any {
+
+
+    if (!schema)
+        return null;
+
+
+
+    if (schema.$ref) {
+
+        const name =
+            schema.$ref
+                .split('/')
+                .pop();
+
+
+        return {
+            id: 1,
+            name: `Example ${name}`,
+        };
+    }
+
+
+
+    if (
+        schema.type === 'array'
+    ) {
+
+        return [
+            exampleFromSchema(
+                schema.items,
+            ),
+        ];
+    }
+
+
+
+    if (
+        schema.type === 'string'
+    )
+        return "example";
+
+
+
+    if (
+        schema.type === 'number'
+    )
+        return 1;
+
+
+
+    if (
+        schema.type === 'boolean'
+    )
+        return true;
+
+
+
+    if (
+        schema.type === 'object'
+    ) {
+
+        const obj:any = {};
+
+        Object.entries(
+            schema.properties || {},
+        )
+        .forEach(
+            ([key,value])=>{
+                obj[key] =
+                    exampleFromSchema(
+                        value,
+                    );
+            },
+        );
+
+
+        return obj;
+    }
+
+
+
+    return null;
+}
+
+
+
+
+/* ===========================================================
+ * Convert Type Name To OpenAPI Schema
+ * =========================================================== */
+
+
+function schemaFromTypeName(
+    name:string,
+    schemas:SchemaMap,
+) {
+
+
+    name =
+        name.replace(
+            /\s/g,
+            '',
+        );
+
+
+
+    if (
+        name.endsWith('[]')
+    ) {
+
+        return {
+
+            type:'array',
+
+            items:
+                schemaFromTypeName(
+                    name.slice(0,-2),
+                    schemas,
+                ),
+        };
+    }
+
+
+
+    if (
+        name === 'string'
+    )
+        return {
+            type:'string',
+        };
+
+
+
+    if (
+        name === 'number'
+    )
+        return {
+            type:'number',
+        };
+
+
+
+    if (
+        name === 'boolean'
+    )
+        return {
+            type:'boolean',
+        };
+
+
+
+    if (
+        schemas[name]
+    ) {
+
+        return {
+
+            $ref:
+            `#/components/schemas/${name}`,
+
+        };
+    }
+
+
+
     return {
-      type: 'array',
-      items: schemaForTypeName(normalized.slice(0, -2), schemas),
+        type:'object',
     };
-  }
-
-  if (normalized === 'string') return { type: 'string' };
-  if (normalized === 'number') return { type: 'number' };
-  if (normalized === 'boolean') return { type: 'boolean' };
-  if (normalized === 'object') return { type: 'object' };
-
-  if (schemas[normalized]) {
-    return { $ref: `#/components/schemas/${normalized}` };
-  }
-
-  return { type: 'string' };
 }
 
-function exampleForSchema(schema: any, propertyName?: string): any {
-  if (schema?.$ref) {
-    const refName = schema.$ref.split('/').pop();
-    if (refName === 'Book') {
-      return {
-        id: 1,
-        title: 'Wings and Fire',
-        author: 'ABC',
-        price: 123,
-      };
-    }
-    if (refName === 'Item') {
-      return {
-        id: 'sample-id',
-        name: 'Sample Item',
-        category: 'Books',
-        quantity: 5,
-        price: 123,
-        isInStock: true,
-      };
-    }
-    if (refName === 'CreateBookDto') {
-      return {
-        title: 'Wings and Fire',
-        author: 'ABC',
-        price: 123,
-        category: 'Books',
-        quantity: 5,
-      };
-    }
-    if (refName === 'UpdateBookDto') {
-      return {
-        title: 'Wings and Fire',
-        author: 'ABC',
-        price: 123,
-      };
-    }
-  }
 
-  if (schema?.type === 'array') {
-    return [exampleForSchema(schema.items, propertyName)];
-  }
 
-  if (schema?.type === 'object' || schema?.properties) {
-    const result: Record<string, any> = {};
-    Object.entries(schema.properties || {}).forEach(([name, value]) => {
-      result[name] = exampleForSchema(value as any, name);
-    });
-    return result;
-  }
 
-  if (schema?.type === 'string') {
-    if (propertyName === 'status') return 'SUCCESS';
-    if (propertyName === 'category') return 'BOOK';
-    if (propertyName === 'id') return 1;
-    if (propertyName === 'name') return 'Sample Item';
-    if (propertyName === 'title') return 'Wings and Fire';
-    if (propertyName === 'author') return 'ABC';
-    return 'example';
-  }
 
-  if (schema?.type === 'number') {
-    if (propertyName === 'price') return 123;
-    if (propertyName === 'quantity') return 5;
-    return 1;
-  }
+/* ===========================================================
+ * Response Analyzer
+ * =========================================================== */
 
-  if (schema?.type === 'boolean') return true;
-
-  return null;
-}
 
 function buildResponseSchema(
-  member: ts.MethodDeclaration,
-  dependencies: Record<string, string>,
-  serviceMethods: Record<string, Record<string, string>>,
-  schemas: Record<string, any>,
+    method: ts.MethodDeclaration,
+    schemas: SchemaMap,
 ) {
-  const body = member.body;
-  if (!body) return undefined;
 
-  const returnStatement = body.statements.find(ts.isReturnStatement);
-  if (!returnStatement || !returnStatement.expression) return undefined;
 
-  let responseObject: ts.ObjectLiteralExpression | undefined;
+    if (!method.body)
+        return undefined;
 
-  if (ts.isObjectLiteralExpression(returnStatement.expression)) {
-    responseObject = returnStatement.expression;
-  } else if (ts.isCallExpression(returnStatement.expression)) {
-    const createResponseTarget = returnStatement.expression.expression;
-    if (
-      ts.isPropertyAccessExpression(createResponseTarget) &&
-      createResponseTarget.name.text === 'createResponse' &&
-      returnStatement.expression.arguments[0] &&
-      ts.isObjectLiteralExpression(returnStatement.expression.arguments[0])
-    ) {
-      responseObject = returnStatement.expression.arguments[0];
-    }
-  }
 
-  if (!responseObject) {
-    const directReturn = returnStatement.expression;
-    const declaredType = member.type ? typeToString(member.type) : undefined;
-    if (declaredType === 'string') {
-      return {
-        schema: { type: 'string' },
-        example: 'Hello Server is Running!',
-      };
-    }
 
-    const directType = resolveExpressionType(directReturn, dependencies, serviceMethods, body);
-    if (directType === 'string') {
-      return {
-        schema: { type: 'string' },
-        example: 'Hello Server is Running!',
-      };
-    }
+    let returnExpression:
+        ts.Expression | undefined;
 
-    const stringLiteral = ts.isStringLiteralLike(directReturn) ? directReturn.text : undefined;
-    if (stringLiteral) {
-      return {
-        schema: { type: 'string' },
-        example: stringLiteral,
-      };
-    }
+
+
+    visit(
+        method.body,
+        node=>{
+
+
+            if (
+                returnExpression
+            )
+                return;
+
+
+
+            if (
+                ts.isReturnStatement(node) &&
+                node.expression
+            ) {
+
+                returnExpression =
+                    node.expression;
+
+            }
+
+        },
+    );
+
+
+
+    if (!returnExpression)
+        return undefined;
+
+
+
+    /*
+     * Infer actual return type
+     */
+
+    const typeName =
+        resolveExpressionType(
+            returnExpression,
+        );
+
+
+
+    const schema =
+        schemaFromTypeName(
+            typeName,
+            schemas,
+        );
+
+
 
     return {
-      schema: { type: 'object' },
-      example: {},
+
+        schema,
+
+        example:
+            exampleFromSchema(
+                schema,
+            ),
+
     };
-  }
-
-  const dataProperty = responseObject.properties.find(
-    (prop): prop is ts.PropertyAssignment => ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === 'data',
-  );
-
-  if (!dataProperty) {
-    return {
-      schema: { type: 'object' },
-      example: {},
-    };
-  }
-
-  const dataType = resolveExpressionType(dataProperty.initializer, dependencies, serviceMethods, body);
-  const schema = {
-    type: 'object',
-    properties: {
-      status: { type: 'string' },
-      cat: { type: 'string' },
-      data: schemaForTypeName(dataType, schemas),
-    },
-  };
-
-  return {
-    schema,
-    example: {
-      status: 'SUCCESS',
-      cat: 'BOOK',
-      data: exampleForSchema(schema.properties.data as any),
-    },
-  };
 }
 
-export function shouldSkipController(node: ts.ClassDeclaration): boolean {
-  return false;
-}
+ /* ===========================================================
+ * Controller Analyzer
+ * =========================================================== */
 
-export function collectControllers(sourceFile: ts.SourceFile, serviceMethods: Record<string, Record<string, string>>, schemas: Record<string, any>) {
-  const controllers: any[] = [];
 
-  ts.forEachChild(sourceFile, node => {
-    if (!ts.isClassDeclaration(node)) return;
-    if (shouldSkipController(node)) return;
-    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : undefined;
-    if (!decorators?.length) return;
+const HTTP_METHODS = [
+    'Get',
+    'Post',
+    'Put',
+    'Patch',
+    'Delete',
+    'Options',
+    'Head',
+];
 
-    const ctrlDecorator = decorators.find(d => getDecoratorName(d) === 'Controller');
-    if (!ctrlDecorator) return;
 
-    const prefix = getDecoratorArgText(ctrlDecorator) || '';
-    const className = node.name?.text || 'AnonymousController';
-    const routes: any[] = [];
-    const dependencies = getControllerDependencies(node);
 
-    node.members.forEach(member => {
-      if (!ts.isMethodDeclaration(member)) return;
-      const memberDecorators = ts.canHaveDecorators(member) ? ts.getDecorators(member) : undefined;
-      if (!memberDecorators?.length) return;
+type ControllerRoute = {
 
-      const methodDecorators = memberDecorators.map(d => ({
-        name: getDecoratorName(d),
-        arg: getDecoratorArgText(d),
-      }));
-      const routeDecorator = methodDecorators.find(d =>
-        ['Get', 'Post', 'Put', 'Delete', 'Patch', 'Options', 'Head'].includes(d.name || ''),
-      );
-      if (!routeDecorator) return;
+    method:string;
 
-      const httpMethod = routeDecorator.name?.toUpperCase();
-      const routePath = normalizeRoute(prefix, routeDecorator.arg || '');
-      const params: string[] = [];
-      let requestBodyType: string | null = null;
+    path:string;
 
-      member.parameters.forEach(param => {
-        const paramDecorators = ts.canHaveDecorators(param) ? ts.getDecorators(param) : undefined;
-        if (!paramDecorators?.length) return;
-        const paramDecorator = paramDecorators
-          .map(d => getDecoratorName(d))
-          .find(name => name === 'Body' || name === 'Param' || name === 'Query' || name === 'Headers');
-        if (paramDecorator === 'Body' && param.type) {
-          requestBodyType = typeToString(param.type);
-        }
-        const paramName = param.name.getText();
-        params.push(`${paramDecorator || 'param'}:${paramName}`);
-      });
+    requestBodyType?:string;
 
-      const throws: any[] = [];
-      ts.forEachChild(member, child => {
+    parameters:string[];
+
+    throws:any[];
+
+    responseInfo:any;
+
+    authentication?: Record<string, any>;
+
+};
+
+
+
+/* ===========================================================
+ * Constructor Dependency Reader
+ * =========================================================== */
+
+
+function getControllerDependencies(
+    node:ts.ClassDeclaration,
+) {
+
+
+    const result:
+        Record<string,string> = {};
+
+
+
+    const constructor =
+        node.members.find(
+            ts.isConstructorDeclaration,
+        );
+
+
+    if (!constructor)
+        return result;
+
+
+
+    constructor.parameters.forEach(param=>{
+
+
         if (
-          ts.isThrowStatement(child) &&
-          ts.isNewExpression(child.expression) &&
-          ts.isIdentifier(child.expression.expression)
+            ts.isIdentifier(param.name) &&
+            param.type
         ) {
-          const exceptionName = child.expression.expression.text;
-          const messageArg = child.expression.arguments?.[0];
-          const message = messageArg ? messageArg.getText().replace(/^['"`]|['"`]$/g, '') : undefined;
-          throws.push({ exception: exceptionName, message });
+
+            result[param.name.text] =
+                param.type.getText();
+
         }
-      });
 
-      const responseInfo = buildResponseSchema(member, dependencies, serviceMethods, schemas);
-
-      routes.push({
-        method: httpMethod,
-        path: routePath,
-        requestBodyType,
-        parameters: params,
-        throws,
-        responseInfo,
-      });
     });
 
-    controllers.push({ controller: className, prefix, routes });
-  });
 
-  return controllers;
+    return result;
 }
 
-export function buildOpenApi(controllers: any[], schemas: Record<string, any>) {
-  const paths: Record<string, any> = {};
+/* ===========================================================
+ * Detect Authentication
+ * =========================================================== */
 
-  controllers.forEach(ctrl => {
-    ctrl.routes.forEach((route: any) => {
-      const routeResponses: Record<string, any> = {
+function detectAuthentication(
+    node: ts.Node,
+): Record<string, any> | undefined {
+
+
+    const decorators =
+        getDecorators(node);
+
+
+    const authDecorator =
+        decorators.find(d => {
+
+            const name =
+                getDecoratorName(d);
+
+            return [
+                'UseGuards',
+                'Auth',
+                'ApiBearerAuth',
+            ].includes(name || '');
+
+        });
+
+
+    if (!authDecorator)
+        return undefined;
+
+
+    return {
+        bearerAuth: ["<AUTH_KEY>"],
+    };
+}
+
+
+
+/* ===========================================================
+ * Controller Collector
+ * =========================================================== */
+
+
+export function collectControllers(
+    sourceFile:ts.SourceFile,
+    schemas:SchemaMap,
+) {
+
+
+    const controllers:any[] = [];
+
+
+
+    visit(
+        sourceFile,
+        node=>{
+
+
+            if (
+                !ts.isClassDeclaration(node) ||
+                !node.name
+            )
+                return;
+
+
+
+            const decorators =
+                getDecorators(node);
+
+
+
+            const controllerDecorator =
+                decorators.find(
+                    d =>
+                    getDecoratorName(d)
+                    ===
+                    'Controller',
+                );
+
+
+
+            if (!controllerDecorator)
+                return;
+
+
+
+            const prefix =
+                getDecoratorArg(
+                    controllerDecorator,
+                ) || '';
+
+
+
+            const className =
+                node.name.text;
+
+
+
+            const dependencies =
+                getControllerDependencies(
+                    node,
+                );
+
+
+
+            const routes:
+                ControllerRoute[] = [];
+
+            const controllerAuth =
+                detectAuthentication(node);    
+
+
+
+            node.members.forEach(member=>{
+
+
+                if (
+                    !ts.isMethodDeclaration(member)
+                )
+                    return;
+
+
+
+                const methodDecorators =
+                    getDecorators(member);
+
+
+
+                if (
+                    methodDecorators.length===0
+                )
+                    return;
+
+
+
+                const routeDecorator =
+                    methodDecorators.find(
+                        d =>
+                        HTTP_METHODS.includes(
+                            getDecoratorName(d) || '',
+                        ),
+                    );
+
+
+
+                if (!routeDecorator)
+                    return;
+
+
+
+                const httpMethod =
+                    (
+                    getDecoratorName(
+                        routeDecorator,
+                    ) || ''
+                    )
+                    .toUpperCase();
+
+
+
+                const route =
+                    normalizeRoute(
+                        prefix,
+                        getDecoratorArg(
+                            routeDecorator,
+                        ) || '',
+                    );
+
+
+
+                let requestBodyType:
+                    string | undefined;
+
+
+
+                const parameters:string[]=[];
+
+
+
+                member.parameters.forEach(
+                    parameter=>{
+
+
+                    const decorators =
+                        getDecorators(
+                            parameter,
+                        );
+
+
+
+                    const decorator =
+                        decorators[0];
+
+
+
+                    if (!decorator)
+                        return;
+
+
+
+                    const name =
+                        getDecoratorName(
+                            decorator,
+                        );
+
+
+
+                    const parameterName =
+                        parameter.name.getText();
+
+
+
+                    parameters.push(
+                        `${name}:${parameterName}`,
+                    );
+
+
+
+                    if (
+                        name==='Body' &&
+                        parameter.type
+                    ) {
+
+                        requestBodyType =
+                            parameter.type.getText();
+
+                    }
+
+                });
+
+
+
+                const throws =
+                    collectThrows(
+                        member,
+                    );
+
+
+
+                const responseInfo =
+                    buildResponseSchema(
+                        member,
+                        schemas,
+                    );
+
+
+
+                routes.push({
+
+                    method:httpMethod,
+
+                    path:route,
+
+                    requestBodyType,
+
+                    parameters,
+
+                    throws,
+
+                    responseInfo,
+                    
+                    authentication: detectAuthentication(member) || controllerAuth,
+
+                });
+
+
+            });
+
+
+
+            controllers.push({
+
+                controller:className,
+
+                prefix,
+
+                routes,
+
+            });
+
+
+        },
+    );
+
+
+
+    return controllers;
+}
+ /* ===========================================================
+ * OpenAPI Builder
+ * =========================================================== */
+
+
+function exceptionToStatus(
+    exception:string,
+): string | undefined {
+
+
+    const map:
+        Record<string,string> = {
+
+
+        BadRequestException:
+            '400',
+
+
+        UnauthorizedException:
+            '401',
+
+
+        ForbiddenException:
+            '403',
+
+
+        NotFoundException:
+            '404',
+
+
+        ConflictException:
+            '409',
+
+
+        InternalServerErrorException:
+            '500',
+
+    };
+
+
+    return map[exception];
+
+}
+
+
+
+
+function buildResponses(
+    route:ControllerRoute,
+) {
+
+
+    const responses:any = {
+
+
+
         '200': {
-          description: 'OK',
-          content: {
-            'application/json': {
-              schema: route.responseInfo?.schema || { type: 'object' },
-              example: route.responseInfo?.example || {
-                status: 'SUCCESS',
-                cat: 'BOOK',
-                data: [],
-              },
-            },
-          },
-        },
-        '400': {
-          description: 'Bad Request',
-        },
-        '401': {
-          description: 'Unauthorized',
-        },
-        '404': {
-          description: 'Not Found',
-        },
-        '500': {
-          description: 'Internal Server Error',
-        },
-        '503': {
-          description: 'Service Unavailable - server is down or unreachable',
-        },
-      };
 
-      const operation: Record<string, any> = {
-        summary: `${route.method} ${route.path}`,
-        responses: routeResponses,
-      };
+            description:'Successful Response',
 
-      if (route.requestBodyType) {
-        operation.requestBody = {
-          required: true,
-          content: {
-            'application/json': {
-              schema: { $ref: `#/components/schemas/${route.requestBodyType}` },
+            content:{
+
+                'application/json':{
+
+                    schema:
+                        route.responseInfo?.schema
+                        ||
+                        {
+                            type:'object',
+                        },
+
+
+                    example:
+                        route.responseInfo?.example
+                        ||
+                        {},
+
+                },
+
             },
-          },
+
+        },
+
+
+    };
+
+
+
+
+    /*
+     * Add detected exceptions
+     */
+
+    route.throws.forEach(error=>{
+
+
+        const status =
+            exceptionToStatus(
+                error.exception,
+            );
+
+
+        if (!status)
+            return;
+
+
+
+        responses[status]={
+
+            description:
+                error.message
+                ||
+                error.exception,
+
         };
-      }
 
-      if (route.path === '/book' && route.method === 'GET') {
-        operation.security = [{ bearerAuth: [] }];
-      }
 
-      paths[route.path] = paths[route.path] || {};
-      paths[route.path][route.method.toLowerCase()] = operation;
     });
-  });
 
-  return {
-    info: { title: 'Static Analyzer', version: '1.0.0' },
-    paths,
-    components: {
-      schemas,
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-        },
-      },
-    },
-  };
+
+
+
+    /*
+     * Default errors
+     */
+
+    const defaults = [
+
+        '400',
+        '401',
+        '404',
+        '500',
+
+    ];
+
+
+
+    defaults.forEach(code=>{
+
+
+        if (!responses[code]) {
+
+
+            responses[code]={
+
+                description:
+                    code,
+
+            };
+
+        }
+
+
+    });
+
+
+
+    return responses;
+
 }
+
+
+
+
+
+function hasAuthDecorator(
+    controller:any,
+):boolean {
+
+
+    /*
+     * Later this can be extended
+     * for project specific guards
+     */
+
+    return false;
+
+}
+
+
+
+
+
+export function buildOpenApi(
+    controllers:any[],
+    schemas:SchemaMap,
+) {
+
+
+    const paths:
+        Record<string,any> = {};
+
+
+
+
+    controllers.forEach(controller=>{
+
+
+        controller.routes.forEach(
+            (route:ControllerRoute)=>{
+
+
+            const operation:any={
+              
+            };
+
+            if (route.authentication) {
+
+            operation.security = [
+                route.authentication,
+              ];
+
+            }
+
+            operation.summary =
+                `${route.method} ${route.path}`;
+
+
+
+            operation.responses =
+                buildResponses(
+                    route,
+                );
+
+
+
+
+            /*
+             * Request Body
+             */
+
+            if (
+                route.requestBodyType
+            ) {
+
+
+                operation.requestBody={
+
+
+                    required:true,
+
+
+                    content:{
+
+
+                        'application/json':{
+
+
+                            schema:{
+
+
+                                $ref:
+                                `#/components/schemas/${route.requestBodyType}`,
+
+                            },
+
+
+                        },
+
+
+                    },
+
+
+                };
+
+            }
+
+
+
+
+            /*
+             * Parameters
+             */
+
+            const parameters =
+                route.parameters
+                .filter(
+                    p =>
+                    !p.startsWith('Body'),
+                );
+
+
+
+            if (
+                parameters.length
+            ) {
+
+                operation.parameters =
+                    parameters.map(p=>{
+
+
+                    const [
+                        type,
+                        name,
+                    ] =
+                    p.split(':');
+
+
+
+                    return {
+
+                        name,
+
+                        in:
+                        type==='Param'
+                        ?
+                        'path'
+                        :
+                        type==='Query'
+                        ?
+                        'query'
+                        :
+                        'header',
+
+
+                        required:true,
+
+
+                        schema:{
+
+                            type:'string',
+
+                        },
+
+
+                    };
+
+
+                });
+
+            }
+
+
+
+
+
+            const method =
+                route.method.toLowerCase();
+
+
+
+            if (!paths[route.path]) {
+
+                paths[route.path]={};
+
+            }
+
+
+
+            paths[route.path][method] =
+                operation;
+
+
+
+        });
+
+    });
+
+
+
+
+    return {
+
+
+        openapi:
+            '3.0.0',
+
+
+
+        info:{
+
+            title:
+                'Static Analyzer API',
+
+
+            version:
+                '1.0.0',
+
+        },
+
+
+
+        paths,
+
+
+
+        components:{
+
+
+            schemas,
+
+
+
+            securitySchemes:{
+
+
+                bearerAuth:{
+
+
+                    type:'http',
+
+
+                    scheme:'bearer',
+
+
+                    bearerFormat:'JWT',
+
+                },
+
+
+            },
+
+        },
+
+
+    };
+
+}
+
+ /* ===========================================================
+ * Main Runner
+ * =========================================================== */
+
+
+function loadSourceFiles(): ts.SourceFile[] {
+
+    return sourceFiles
+        .map(file => program.getSourceFile(file))
+        .filter(
+            (source): source is ts.SourceFile =>
+                !!source
+        );
+
+}
+
+
+
+
 
 function main() {
-  const files = findSourceFiles(SRC).filter(file => !file.endsWith('.spec.ts'));
-  const schemas: Record<string, any> = {};
-  const serviceMethods: Record<string, Record<string, string>> = {};
 
-  for (const file of files) {
-    const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true);
-    Object.assign(schemas, collectSchemas(source));
-    Object.assign(serviceMethods, collectServices(source));
-  }
 
-  const allControllers: any[] = [];
-  for (const file of files) {
-    const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true);
-    allControllers.push(...collectControllers(source, serviceMethods, schemas));
-  }
+    console.log(
+        'Starting static analyzer...',
+    );
 
-  const openApi = buildOpenApi(allControllers, schemas);
-  fs.writeFileSync(path.join(process.cwd(), 'static.json'), JSON.stringify(openApi, null, 2));
-  console.log('Wrote static.json');
+
+
+    const sources =
+        loadSourceFiles();
+
+
+
+
+    /*
+     * ------------------------------------
+     * Collect Schemas
+     * ------------------------------------
+     */
+
+    const schemas:
+        SchemaMap = {};
+
+
+
+    sources.forEach(source=>{
+
+
+        Object.assign(
+
+            schemas,
+
+            collectSchemas(
+                source,
+            ),
+
+        );
+
+
+    });
+
+
+
+    console.log(
+        `Schemas found: ${Object.keys(schemas).length}`,
+    );
+
+
+
+
+    /*
+     * ------------------------------------
+     * Collect Services
+     * ------------------------------------
+     */
+
+    const services:
+        ServiceMap = {};
+
+
+
+    sources.forEach(source=>{
+
+
+        Object.assign(
+
+            services,
+
+            collectServices(
+                source,
+            ),
+
+        );
+
+
+    });
+
+
+
+    console.log(
+        `Services found: ${Object.keys(services).length}`,
+    );
+
+
+
+
+
+    /*
+     * ------------------------------------
+     * Collect Controllers
+     * ------------------------------------
+     */
+
+    const controllers:any[]=[];
+
+
+
+    sources.forEach(source=>{
+
+
+        controllers.push(
+
+            ...collectControllers(
+
+                source,
+
+                schemas,
+
+            ),
+
+        );
+
+
+    });
+
+
+
+    console.log(
+        `Controllers found: ${controllers.length}`,
+    );
+
+
+
+
+
+    /*
+     * ------------------------------------
+     * Build OpenAPI
+     * ------------------------------------
+     */
+
+    const openApi =
+        buildOpenApi(
+
+            controllers,
+
+            schemas,
+
+        );
+
+
+
+
+
+    const output =
+        path.join(
+            process.cwd(),
+            'static.json',
+        );
+
+
+
+    fs.writeFileSync(
+
+        output,
+
+        JSON.stringify(
+            openApi,
+            null,
+            2,
+        ),
+
+        'utf-8',
+
+    );
+
+
+
+    console.log(
+        `Static Analyzer generated: ${output}`,
+    );
+
 }
+
+
 
 main();

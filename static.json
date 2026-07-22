@@ -1,6 +1,7 @@
 {
+  "openapi": "3.0.0",
   "info": {
-    "title": "Static Analyzer",
+    "title": "Static Analyzer API",
     "version": "1.0.0"
   },
   "paths": {
@@ -9,83 +10,62 @@
         "summary": "GET /",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "string"
                 },
-                "example": "Hello Server is Running!"
+                "example": "example"
               }
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         }
       }
     },
     "/book/inventory/add": {
       "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "POST /book/inventory/add",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string"
-                    },
-                    "cat": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/Book"
-                    }
-                  }
+                  "type": "object"
                 },
-                "example": {
-                  "status": "SUCCESS",
-                  "cat": "BOOK",
-                  "data": {
-                    "id": 1,
-                    "title": "Wings and Fire",
-                    "author": "ABC",
-                    "price": 123
-                  }
-                }
+                "example": {}
               }
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         },
         "requestBody": {
@@ -102,10 +82,15 @@
     },
     "/book": {
       "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "GET /book",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -116,34 +101,41 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         },
-        "security": [
+        "parameters": [
           {
-            "bearerAuth": []
+            "name": "req",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ]
       }
     },
     "/book/:id": {
       "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "GET /book/:id",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -154,27 +146,39 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "put": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "PUT /book/:id",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -185,19 +189,16 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         },
         "requestBody": {
@@ -209,13 +210,28 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "delete": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "DELETE /book/:id",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -226,21 +242,28 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/inventory": {
@@ -248,34 +271,27 @@
         "summary": "POST /inventory",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object"
                 },
-                "example": {
-                  "status": "SUCCESS",
-                  "cat": "BOOK",
-                  "data": []
-                }
+                "example": {}
               }
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         },
         "requestBody": {
@@ -293,7 +309,7 @@
         "summary": "GET /inventory",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -304,21 +320,36 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "isInStock",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/inventory/:id": {
@@ -326,7 +357,7 @@
         "summary": "GET /inventory/:id",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -337,54 +368,54 @@
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "put": {
         "summary": "PUT /inventory/:id",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object"
                 },
-                "example": {
-                  "status": "SUCCESS",
-                  "cat": "BOOK",
-                  "data": []
-                }
+                "example": {}
               }
             }
           },
           "400": {
-            "description": "Bad Request"
+            "description": "400"
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "401"
           },
           "404": {
-            "description": "Not Found"
+            "description": "404"
           },
           "500": {
-            "description": "Internal Server Error"
-          },
-          "503": {
-            "description": "Service Unavailable - server is down or unreachable"
+            "description": "500"
           }
         },
         "requestBody": {
@@ -396,7 +427,17 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   },

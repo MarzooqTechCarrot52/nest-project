@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import RunTimeDatabase from 'src/libs/helper/runTImeDatabase';
+import RunTimeDatabase from '../libs/helper/runTImeDatabase';
 import { v4 as uuid } from 'uuid';
 
 export interface Item {

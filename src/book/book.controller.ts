@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import { firstValueFrom } from 'rxjs';
 import { BearerAuthGuard } from '../auth/bearer-auth.guard';
 @Controller("book")
+@UseGuards(BearerAuthGuard)
 export class BookController{
   constructor(
     private readonly service:BookService,
@@ -37,7 +38,6 @@ export class BookController{
   }
 
   @Get()
-  @UseGuards(BearerAuthGuard)
   async getAll(@Req() req: any) {
     const response = await this.service.findAll();
 
